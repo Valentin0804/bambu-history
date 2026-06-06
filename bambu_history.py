@@ -420,8 +420,9 @@ function buildGlobalStats() {{
       const w    = a.weight || 0;
       const pt   = byType.get(type)  || {{g:0, count:0}};
       pt.g += w; pt.count++; byType.set(type, pt);
-      const pc   = byColor.get(hex)  || {{g:0, count:0, hex, type}};
-      pc.g += w; pc.count++; byColor.set(hex, pc);
+      const ckey = type + '|' + hex;
+      const pc   = byColor.get(ckey)  || {{g:0, count:0, hex, type}};
+      pc.g += w; pc.count++; byColor.set(ckey, pc);
     }});
   }});
 
@@ -441,7 +442,7 @@ function buildGlobalStats() {{
     {{label:"Color más usado",   value: topColor ? fmtGrams(topColor[1].g) : "—",
                                  sub: topColor ? topColor[1].type : "",
                                  dot: topColor ? topColor[0] : null}},
-    {{label:"Colores distintos", value: byColor.size, sub: byType.size+" tipos de filamento"}},
+    {{label:"Colores distintos", value: new Set([...byColor.values()].map(v=>v.hex)).size, sub: byColor.size+" combinaciones · "+byType.size+" tipos"}},
   ];
 
   document.getElementById('overview-grid').innerHTML = cards.map(c => `
@@ -469,12 +470,12 @@ function buildGlobalStats() {{
   // Chart colores (top 15)
   const sortedColors = [...byColor.entries()].sort((a,b)=>b[1].g-a[1].g).slice(0,15);
   const maxColorG    = sortedColors[0]?.[1].g || 1;
-  document.getElementById('chart-color').innerHTML = sortedColors.map(([hex, v]) => `
+  document.getElementById('chart-color').innerHTML = sortedColors.map(([, v]) => `
     <div class="chart-row">
-      <span class="color-label-dot" style="background:${{hex}};border:1px solid #333"></span>
-      <span class="chart-label" title="${{v.type}} ${{hex}}">${{v.type}} <span style="color:#444;font-size:.65rem">${{hex}}</span></span>
+      <span class="color-label-dot" style="background:${{v.hex}};border:1px solid #333"></span>
+      <span class="chart-label" title="${{v.type}} ${{v.hex}}">${{v.type}} <span style="color:#444;font-size:.65rem">${{v.hex}}</span></span>
       <div class="chart-bar-wrap">
-        <div class="chart-bar" style="width:${{Math.round(v.g/maxColorG*100)}}%;background:${{hex}}"></div>
+        <div class="chart-bar" style="width:${{Math.round(v.g/maxColorG*100)}}%;background:${{v.hex}}"></div>
       </div>
       <span class="chart-val">${{fmtGrams(v.g)}}</span>
     </div>`).join('');
@@ -671,7 +672,8 @@ function _updateStats() {{
       const hex  = parseColor(a.sourceColor) || '#555555';
       const w    = a.weight || 0;
       const pt   = btType.get(type)  || {{g:0}};  pt.g += w;  btType.set(type, pt);
-      const pc   = btColor.get(hex)  || {{g:0, hex, type}}; pc.g += w; btColor.set(hex, pc);
+      const ck   = type + '|' + hex;
+      const pc   = btColor.get(ck)  || {{g:0, hex, type}}; pc.g += w; btColor.set(ck, pc);
     }});
   }});
 
@@ -687,11 +689,11 @@ function _updateStats() {{
       </div>`).join('');
 
   document.getElementById('bd-color').innerHTML = [...btColor.entries()]
-    .sort((a,b)=>b[1].g-a[1].g).map(([hex,v]) => `
+    .sort((a,b)=>b[1].g-a[1].g).map(([,v]) => `
       <div class="bd-row">
-        <span class="bd-dot" style="background:${{hex}}"></span>
+        <span class="bd-dot" style="background:${{v.hex}}"></span>
         <span class="bd-name" style="color:#888">${{v.type||'?'}}</span>
-        <div class="bd-bar-wrap"><div class="bd-bar" style="width:${{Math.round(v.g/maxCG*100)}}%;background:${{hex}}"></div></div>
+        <div class="bd-bar-wrap"><div class="bd-bar" style="width:${{Math.round(v.g/maxCG*100)}}%;background:${{v.hex}}"></div></div>
         <span class="bd-val">${{fmtGrams(v.g)}}</span>
       </div>`).join('');
 
