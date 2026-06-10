@@ -6,14 +6,49 @@ import time
 from datetime import datetime
 import requests
 
+# Forzar codificación UTF-8 en la consola (especialmente útil en Windows)
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+# ── CARGAR .ENV (para ejecución local) ────────────────────────────────────────
+def load_env():
+    env_path = ".env"
+    if os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key not in os.environ:
+                        os.environ[key] = val
+
+load_env()
+
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-EMAIL      = os.environ["BAMBU_EMAIL"]
-PASSWORD   = os.environ["BAMBU_PASSWORD"]
+EMAIL      = os.environ.get("BAMBU_EMAIL")
+PASSWORD   = os.environ.get("BAMBU_PASSWORD")
+
+if not EMAIL or not PASSWORD:
+    print("Error: BAMBU_EMAIL y BAMBU_PASSWORD deben estar configurados en el archivo .env")
+    sys.exit(1)
+
 DEVICE_ID  = os.getenv("BAMBU_DEVICE_ID", "")
 LIMIT      = int(os.getenv("LIMIT", "100"))
 SAVE_JSON  = os.getenv("SAVE_JSON", "1") == "1"
-OUTPUT_DIR = "/output"
-DATA_DIR   = "/data"
+
+# Detectar si estamos dentro de Docker para usar rutas absolutas
+IS_DOCKER = os.path.exists("/.dockerenv") or os.environ.get("AM_I_IN_A_DOCKER_CONTAINER", "") != ""
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output" if IS_DOCKER else "./output")
+DATA_DIR   = os.getenv("DATA_DIR", "/data" if IS_DOCKER else "./data")
+
 TOKEN_FILE = f"{DATA_DIR}/.bambu_token"
 LEGACY_TOKEN_FILE = f"{OUTPUT_DIR}/.bambu_token"
 JSON_FILE  = f"{OUTPUT_DIR}/historial.json"
@@ -82,6 +117,8 @@ def do_login() -> str:
         f"{BASE_URL}/v1/user-service/user/login",
         json={"account": EMAIL, "password": PASSWORD}, timeout=15,
     )
+    if r.status_code != 200:
+        print(f"Error del servidor al iniciar sesión ({r.status_code}): {r.text}")
     r.raise_for_status()
     data = r.json()
     token = data.get("accessToken")
@@ -98,6 +135,8 @@ def do_login() -> str:
             f"{BASE_URL}/v1/user-service/user/login",
             json={"account": EMAIL, "code": code}, timeout=15,
         )
+        if r3.status_code != 200:
+            print(f"Error del servidor al verificar código ({r3.status_code}): {r3.text}")
         r3.raise_for_status()
         token = r3.json().get("accessToken")
 
@@ -300,6 +339,42 @@ header h1{{font-size:1rem;font-weight:600;color:#fff;flex:1;white-space:nowrap}}
 .badge-3{{background:#3d1010;color:#f87171}}
 .badge-1{{background:#1a2a3d;color:#60a5fa}}
 .badge-0,.badge-4{{background:#222;color:#555}}
+
+/* ── Paginación ── */
+.pagination-bar {{
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 18px;
+  background: #111;
+  border-top: 1px solid #1a1a1a;
+  margin-top: 10px;
+}}
+.pagination-btn {{
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: #222;
+  color: #ccc;
+  border: 1px solid #333;
+  cursor: pointer;
+  font-size: .8rem;
+  font-weight: 500;
+  transition: all .15s;
+}}
+.pagination-btn:hover:not(:disabled) {{
+  background: #2a2a2a;
+  color: #fff;
+  border-color: #555;
+}}
+.pagination-btn:disabled {{
+  opacity: 0.35;
+  cursor: not-allowed;
+}}
+.pagination-info {{
+  font-size: .82rem;
+  color: #777;
+}}
 </style>
 </head>
 <body>
@@ -362,6 +437,9 @@ header h1{{font-size:1rem;font-weight:600;color:#fff;flex:1;white-space:nowrap}}
 
 <!-- ── Grid de cards ── -->
 <div id="grid"></div>
+
+<!-- ── Paginación ── -->
+<div id="pagination-bottom" class="pagination-bar"></div>
 
 <script>
 const tasks = {tasks_json};
@@ -542,15 +620,17 @@ function taskVisible(t) {{
 }}
 
 function applyFilters() {{
-  let visible = 0;
   tasks.forEach((t, i) => {{
-    const show = taskVisible(t);
-    const card = document.querySelector(`[data-idx="${{i}}"]`);
-    card.classList.toggle('hidden', !show);
-    if (!show && selected.has(i)) {{ selected.delete(i); card.classList.remove('selected'); }}
-    if (show) visible++;
+    if (selected.has(i) && !taskVisible(t)) {{
+      selected.delete(i);
+    }}
   }});
-  document.getElementById('hdr-count').textContent = visible + ' impresiones';
+
+  currentPage = 1;
+  renderCards();
+
+  const filteredCount = tasks.filter(taskVisible).length;
+  document.getElementById('hdr-count').textContent = filteredCount + ' impresiones';
 
   // Actualizar label del grams en sel-bar
   const note  = document.getElementById('filter-note');
@@ -568,15 +648,41 @@ function applyFilters() {{
 
 // ── Selección ────────────────────────────────────────────────────────────────
 const selected = new Set();
+let currentPage = 1;
+const ITEMS_PER_PAGE = 48;
 
 // ── Render cards ─────────────────────────────────────────────────────────────
 function renderCards() {{
   const grid = document.getElementById('grid');
-  tasks.forEach((t, i) => {{
-    const card = document.createElement('div');
-    card.className = 'card'; card.dataset.idx = i;
+  grid.innerHTML = '';
 
-    // Use card reference directly — avoids querySelector failures
+  const filtered = tasks
+    .map((t, idx) => ({{ task: t, originalIndex: idx }}))
+    .filter(item => taskVisible(item.task));
+
+  const totalFiltered = filtered.length;
+  const totalPages = Math.ceil(totalFiltered / ITEMS_PER_PAGE) || 1;
+  if (currentPage > totalPages) {{
+    currentPage = totalPages;
+  }}
+  if (currentPage < 1) {{
+    currentPage = 1;
+  }}
+
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalFiltered);
+  const pageItems = filtered.slice(startIndex, endIndex);
+
+  pageItems.forEach(item => {{
+    const t = item.task;
+    const i = item.originalIndex;
+    const card = document.createElement('div');
+    card.className = 'card';
+    if (selected.has(i)) {{
+      card.classList.add('selected');
+    }}
+    card.dataset.idx = i;
+
     card.addEventListener('click', function() {{
       if (selected.has(i)) {{
         selected.delete(i);
@@ -622,12 +728,49 @@ function renderCards() {{
       </div>`;
     grid.appendChild(card);
   }});
+
+  renderPagination(totalFiltered);
 }}
+
+function renderPagination(totalFiltered) {{
+  const totalPages = Math.ceil(totalFiltered / ITEMS_PER_PAGE) || 1;
+  const container = document.getElementById('pagination-bottom');
+  if (!container) return;
+
+  if (totalPages <= 1) {{
+    container.style.display = 'none';
+    return;
+  }}
+  container.style.display = 'flex';
+
+  container.innerHTML = `
+    <button class="pagination-btn" id="btn-prev" ${{currentPage === 1 ? 'disabled' : ''}}>Anterior</button>
+    <span class="pagination-info">Página ${{currentPage}} de ${{totalPages}} (${{totalFiltered}} impresiones)</span>
+    <button class="pagination-btn" id="btn-next" ${{currentPage === totalPages ? 'disabled' : ''}}>Siguiente</button>
+  `;
+
+  document.getElementById('btn-prev').onclick = () => {{
+    if (currentPage > 1) {{
+      currentPage--;
+      renderCards();
+      window.scrollTo({{ top: 0, behavior: 'smooth' }});
+    }}
+  }};
+  document.getElementById('btn-next').onclick = () => {{
+    if (currentPage < totalPages) {{
+      currentPage++;
+      renderCards();
+      window.scrollTo({{ top: 0, behavior: 'smooth' }});
+    }}
+  }};
+}}
+
 function selectVisible() {{
   tasks.forEach((t, i) => {{ if (taskVisible(t)) selected.add(i); }});
-  document.querySelectorAll('.card:not(.hidden)').forEach(c => c.classList.add('selected'));
+  document.querySelectorAll('.card').forEach(c => c.classList.add('selected'));
   updateStats();
 }}
+
 function clearAll() {{
   selected.clear();
   document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
