@@ -18,6 +18,7 @@ TOKEN_FILE = f"{DATA_DIR}/.bambu_token"
 LEGACY_TOKEN_FILE = f"{OUTPUT_DIR}/.bambu_token"
 JSON_FILE  = f"{OUTPUT_DIR}/historial.json"
 HTML_FILE  = f"{OUTPUT_DIR}/historial.html"
+COVERS_DIR = f"{OUTPUT_DIR}/covers"
 REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", "0"))
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -143,6 +144,54 @@ def get_tasks(token: str) -> list:
             break
 
     return tasks
+
+
+# ── COVERS ────────────────────────────────────────────────────────────────────
+
+def cache_covers(tasks: list):
+    """
+    Descarga las miniaturas a disco. Las URLs de `cover` son enlaces prefirmados
+    de S3 con X-Amz-Expires=1800 (30 min): si el HTML las incrusta directamente,
+    dejan de cargar al caducar la firma. Guardándolas localmente y sirviéndolas
+    por ruta relativa, las imágenes ya no dependen de la firma temporal.
+
+    Muta cada task en sitio: si la descarga funciona, `cover` pasa a ser
+    "covers/<id>.png" (ruta relativa servida desde /output). Si falla, deja la
+    URL remota como fallback.
+    """
+    os.makedirs(COVERS_DIR, exist_ok=True)
+    downloaded = cached = failed = 0
+
+    for t in tasks:
+        url = t.get("cover")
+        if not url or not url.startswith("http"):
+            continue
+
+        tid = t.get("id")
+        if tid is None:
+            continue
+
+        fname = f"{tid}.png"
+        fpath = f"{COVERS_DIR}/{fname}"
+        rel   = f"covers/{fname}"
+
+        if os.path.exists(fpath) and os.path.getsize(fpath) > 0:
+            t["cover"] = rel
+            cached += 1
+            continue
+
+        try:
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            with open(fpath, "wb") as f:
+                f.write(r.content)
+            t["cover"] = rel
+            downloaded += 1
+        except (requests.RequestException, OSError) as e:
+            failed += 1
+            print(f"  [cover] fallo {tid}: {e}")
+
+    print(f"Miniaturas → {downloaded} nuevas, {cached} en caché, {failed} fallidas")
 
 
 # ── HTML ──────────────────────────────────────────────────────────────────────
@@ -721,6 +770,7 @@ def fetch_and_render(token: str):
         return
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    cache_covers(tasks)
 
     if SAVE_JSON:
         with open(JSON_FILE, "w", encoding="utf-8") as f:

@@ -17,6 +17,7 @@ Descarga todas tus impresiones desde la nube, las muestra con thumbnails, filame
   - **Estadísticas en tiempo real**: tiempo total, filamento total, promedio por impresión
   - **Breakdown** por tipo y color de filamento con barras proporcionales
 - Guarda el historial en JSON
+- **Cachea las miniaturas en disco**: las descarga a `output/covers/` en cada fetch, así no dependen de las URLs firmadas de Bambu (que caducan a los 30 min)
 - **Recuerda el login**: no pide código de verificación cada vez (token guardado ~3 meses)
 
 ---
@@ -234,7 +235,8 @@ bambu-history/
 │   └── .bambu_token
 └── output/                 # Generado al ejecutar ← NO subir a git
     ├── historial.html      # Visor web
-    └── historial.json      # Datos en JSON
+    ├── historial.json      # Datos en JSON
+    └── covers/             # Miniaturas cacheadas (covers/<id>.png)
 ```
 
 > **Por qué `data/` separado de `output/`**: el visor web sirve `output/` por HTTP sin auth. Si el token estuviera ahí dentro, cualquiera en la LAN podría descargarlo y suplantar tu cuenta de Bambu por ~3 meses. Por eso vive en `data/`, que no se sirve nunca.
@@ -246,7 +248,7 @@ bambu-history/
 | Problema | Solución |
 |---|---|
 | `Error: no se pudo obtener el token` | Verificá email y contraseña en `.env` |
-| Imágenes no cargan en el HTML | Las URLs expiran ~30 min. Volvé a ejecutar para regenerar |
+| Imágenes no cargan en el HTML | Las miniaturas se cachean en `output/covers/`. Si alguna falta, la descarga falló (red/S3 lento): volvé a ejecutar y reintenta solo las que falten |
 | `docker: command not found` | Verificá que Docker esté corriendo |
 | Token expirado (pide código de nuevo) | Normal cada ~3 meses, ingresás el código una vez |
 
