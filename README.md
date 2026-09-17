@@ -153,7 +153,7 @@ Las rutas se acomodan solas: dentro de Docker usa `/output` y `/data` (los volú
 BAMBU_EMAIL=tu@email.com        # Email de tu cuenta Bambu Lab
 BAMBU_PASSWORD=tupassword       # Contraseña
 
-BAMBU_DEVICE_ID=03919D573008914 # Serial de tu impresora (opcional)
+BAMBU_DEVICE_ID=00M00A000000000 # Serial de tu impresora (opcional, de ejemplo)
                                 # Vacío = trae todas las impresoras de tu cuenta
 
 VIEWER_PORT=8766                # Puerto del visor ← propio de cada máquina
@@ -289,7 +289,7 @@ LIMIT=200 docker compose run --rm bambu-history
 PAGE_SIZE=50 docker compose run --rm bambu-history
 
 # Solo una impresora
-BAMBU_DEVICE_ID=03919D573008914 docker compose run --rm bambu-history
+BAMBU_DEVICE_ID=00M00A000000000 docker compose run --rm bambu-history
 
 # Forzar re-login
 rm data/.bambu_token
