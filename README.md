@@ -327,7 +327,7 @@ bambu-history/
 ├── requirements.txt
 ├── .env.example            # Plantilla de configuración
 ├── .env                    # Tu configuración ← NO subir a git
-├── design/                 # Mockups del visor (ver design/README.md)
+├── design/                 # Mockups del visor ← local, NO está en el repo
 ├── data/                   # ← NO subir a git, NO se sirve por HTTP
 │   ├── .bambu_token        # Token de sesión
 │   └── historial.db        # Acumulado histórico (SQLite) ← la fuente de verdad
@@ -338,6 +338,30 @@ bambu-history/
 ```
 
 > **Por qué `data/` separado de `output/`**: el visor web sirve `output/` por HTTP sin auth. Si el token estuviera ahí dentro, cualquiera en la LAN podría descargarlo y suplantar tu cuenta de Bambu por ~3 meses. Por eso vive en `data/`, que no se sirve nunca. La base vive ahí por lo mismo, y porque es la única copia de los trabajos que ya salieron de la ventana de 90 días: `output/` se puede borrar entero y se regenera, `data/` no.
+
+---
+
+## Qué no va al repo
+
+Este repositorio es **público**. Lo que es de tu máquina o de tu taller se queda afuera:
+
+| Fuera del repo | Por qué |
+|---|---|
+| `.env` | Email y contraseña de Bambu Lab |
+| `data/` | Token de sesión (vale ~3 meses) y la base con todo el historial |
+| `output/` | HTML, JSON y miniaturas de tus impresiones |
+| `design/` | Los mockups llevan miniaturas reales y títulos con nombres de clientes |
+
+Todo eso está en `.gitignore`. La regla práctica: **ni seriales reales, ni IPs de tu red o tu tailnet, ni miniaturas de trabajos**. Los ejemplos del README y del `.env.example` usan valores inventados a propósito (`00M00A000000000`).
+
+Antes de commitear, si tenés dudas:
+
+```bash
+git check-ignore -v design/ .env data/ output/   # confirmá que están ignorados
+git grep -n "TU-SERIAL\|TU-IP"                   # buscá lo que no querés publicar
+```
+
+> **Nota honesta**: hasta septiembre de 2026 el serial real de la impresora estaba en `.env.example` y en el README, puesto como si fuera un ejemplo. Se reemplazó, pero **sigue en la historia ya publicada** y en el fork del repo: eso no se puede deshacer sin reescribir historia pública. No es una credencial por sí sola —para la nube hace falta la cuenta, y para el acceso local el código de acceso de la impresora—, pero no conviene repetir el patrón.
 
 ---
 
