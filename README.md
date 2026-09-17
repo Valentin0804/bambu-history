@@ -14,8 +14,10 @@ Descarga todas tus impresiones desde la nube, las muestra con thumbnails, filame
   - **Grid de cards** con thumbnail de cada impresión
   - **Filtros** por tipo de filamento (PLA, PETG, ABS…) y por color
   - **Selección** de impresiones con click
-  - **Estadísticas en tiempo real**: tiempo total, filamento total, promedio por impresión
-  - **Breakdown** por tipo y color de filamento con barras proporcionales
+  - **Horas y gramos de lo seleccionado**, en decimal y con un botón para copiar cada uno: es lo que se carga después en el sistema de ventas
+  - **Desglose por tipo y color** de filamento, que es lo que cambia el precio
+  - **Grid que llena la pantalla**: muestra tantas cards como entren, sin dejar hueco abajo
+  - **Estadísticas globales** (totales y gráficos) en una vista aparte
 - Guarda el historial en JSON
 - **Acumula el historial en una base**: Bambu Cloud solo expone los **últimos 90 días**, así que lo que sale de esa ventana se pierde. Todo lo que se vio alguna vez queda en `data/historial.db` (SQLite) y el visor se genera desde ahí, no desde lo que devolvió el último fetch
 - **Cachea las miniaturas en disco y las guarda en WebP**: las descarga a `output/covers/` en cada fetch, así no dependen de las URLs firmadas de Bambu (que caducan a los 30 min). WebP pesa ~la mitad que el PNG original sin diferencia visible
@@ -25,8 +27,8 @@ Descarga todas tus impresiones desde la nube, las muestra con thumbnails, filame
 
 ## Requisitos
 
-- [Docker](https://docs.docker.com/engine/install/) instalado y corriendo
 - Una cuenta de Bambu Lab
+- [Docker](https://docs.docker.com/engine/install/), **o** Python 3.12+ si preferís correrlo a mano (ver [Correr sin Docker](#correr-sin-docker))
 
 > **Windows**: instalá [Docker Desktop](https://www.docker.com/products/docker-desktop/) con WSL2. Ver [sección Windows](#windows-wsl2) al final.
 
@@ -66,7 +68,7 @@ Para no abrir el HTML a mano cada vez, levantá el visor que sirve la carpeta `o
 docker compose up -d viewer
 ```
 
-Queda corriendo en segundo plano en el puerto **8766**. La URL es la misma que imprime el script al terminar.
+Queda corriendo en segundo plano en el puerto configurado (**8766** por defecto). La URL es la misma que imprime el script al terminar.
 
 > **El puerto es de cada máquina.** El default es 8766, pero si en la tuya está ocupado, poné `VIEWER_PORT` en el `.env` y listo — no hay que tocar ni el compose ni el código:
 >
@@ -115,7 +117,7 @@ Ventajas vs. modo A:
 
 > **No corras `viewer` y `bambu-history` con `SERVE=1` al mismo tiempo** — los dos quieren bindear el puerto 8766.
 
-> **Acceso remoto por Tailscale**: el contenedor usa `network_mode: host`, así que la misma URL funciona con la IP de Tailscale del server: `http://<tu-ip-tailscale>:8766/historial.html`.
+> **Acceso remoto por Tailscale**: el contenedor usa `network_mode: host`, así que la misma URL funciona con la IP de Tailscale de tu server (`tailscale ip -4`): `http://<tu-ip-tailscale>:8766/historial.html`.
 
 > El piso mínimo de `REFRESH_INTERVAL` en modo live es **60s** (para no martirizar la API de Bambu).
 
@@ -159,8 +161,17 @@ LIMIT=100                       # Máximo de impresiones a traer
 PAGE_SIZE=auto                  # Cards por página: "auto" llena la pantalla, o un número fijo
 COVER_QUALITY=82                # Calidad WebP de las miniaturas (1-100)
 SAVE_JSON=1                     # 1 = guardar historial.json, 0 = no
-OUTPUT_FILE=/output/historial.json
 ```
+
+Las que solo hacen falta en casos puntuales:
+
+| Variable | Para qué |
+|---|---|
+| `SERVE=1` | Modo live: el script sirve el HTTP y regenera al recargar |
+| `REFRESH_INTERVAL` | Segundos entre refrescos (0 = una sola corrida) |
+| `VIEWER_TIMEOUT` | Auto-apagado del servicio `viewer` (`30m` por defecto, `0` = sin apagado) |
+| `OUTPUT_DIR` / `DATA_DIR` | Forzar dónde se guardan los archivos |
+| `AM_I_IN_A_DOCKER_CONTAINER` | Escape: tratar el entorno como Docker aunque no haya `/.dockerenv` |
 
 ### ¿Dónde encontrar el serial?
 
@@ -180,7 +191,7 @@ Código enviado. Revisá tu email.
 Código de 6 dígitos: _
 ```
 
-Ingresás el código y listo. **Las próximas veces no lo pide** — el token se guarda en `output/.bambu_token`.
+Ingresás el código y listo. **Las próximas veces no lo pide** — el token se guarda en `data/.bambu_token`, que no se sirve por HTTP.
 
 > Si el token expira (~3 meses), el script lo detecta y vuelve a pedir el código automáticamente.
 
@@ -223,13 +234,11 @@ Pasar de página no debería obligarte a reapuntar el mouse, así que:
 - **Los botones no scrollean la página**: llaman a `goToPage(n, false)`. Con `true` la vista salta al inicio del grid, que en el teléfono corre el botón de abajo del dedo.
 - En pantallas angostas son 5 slots porque con 7 el paginador se parte en dos renglones y las flechas quedan en líneas distintas.
 
-`PAGE_SIZE=auto` es el default. Poniéndole un número (`PAGE_SIZE=24`) se fija y deja de adaptarse.
-
 | Detalle | Comportamiento |
 |---|---|
 | Qué pagina | Lo **filtrado**, no el historial entero: al filtrar por material o color se recalculan las páginas |
 | Al cambiar de filtro | Volvés a la página 1 |
-| `Sel. visibles` | Selecciona **todo lo filtrado**, no solo la página a la vista |
+| `Seleccionar visibles` | Selecciona **todo lo filtrado**, no solo la página a la vista |
 | Selección entre páginas | Se mantiene: si seleccionás en la página 1 y volvés, siguen marcadas |
 | Modo live (`<meta refresh>`) | La página actual queda en la URL (`#p=3`), así el auto-refresh no te devuelve a la 1 |
 
@@ -276,7 +285,7 @@ El lateral pasa arriba del grid, así que lo primero que ves al entrar es **hora
 # Traer más impresiones
 LIMIT=200 docker compose run --rm bambu-history
 
-# Cambiar el tamaño de página del visor
+# Fijar el tamaño de página (por defecto se adapta a la pantalla)
 PAGE_SIZE=50 docker compose run --rm bambu-history
 
 # Solo una impresora
@@ -298,8 +307,12 @@ SERVE=1 REFRESH_INTERVAL=300 docker compose up -d bambu-history
 # Apagar todo
 docker compose down
 
-# Cambiar puerto (default 8766; cambiar también el comando y el mapeo de `viewer` en docker-compose.yml si lo usás)
-VIEWER_PORT=9000 docker compose run --rm bambu-history
+# Cambiar el puerto (default 8766). Vale para el visor y para `viewer`:
+# no hay que tocar el compose
+VIEWER_PORT=9000 SERVE=1 docker compose up -d bambu-history
+
+# Correrlo sin Docker
+python bambu_history.py
 ```
 
 ---
@@ -314,6 +327,7 @@ bambu-history/
 ├── requirements.txt
 ├── .env.example            # Plantilla de configuración
 ├── .env                    # Tu configuración ← NO subir a git
+├── design/                 # Mockups del visor (ver design/README.md)
 ├── data/                   # ← NO subir a git, NO se sirve por HTTP
 │   ├── .bambu_token        # Token de sesión
 │   └── historial.db        # Acumulado histórico (SQLite) ← la fuente de verdad
@@ -356,10 +370,11 @@ sqlite3 data/historial.db "SELECT start_time, title FROM tasks ORDER BY start_ti
 | Problema | Solución |
 |---|---|
 | `Error: no se pudo obtener el token` | Verificá email y contraseña en `.env` |
-| Imágenes no cargan en el HTML | Las miniaturas se cachean en `output/covers/`. Si alguna falta, la descarga falló (red/S3 lento): volvé a ejecutar y reintenta solo las que falten |
+| Imágenes no cargan en el HTML | Las miniaturas se cachean en `output/covers/<id>.webp`. Si alguna falta, la descarga falló (red/S3 lento): volvé a ejecutar y reintenta solo las que falten |
 | `docker: command not found` | Verificá que Docker esté corriendo |
 | Token expirado (pide código de nuevo) | Normal cada ~3 meses, ingresás el código una vez |
-| `docker compose up -d` dice *Started* pero la página no carga / da 404 | Mirá `docker logs bambu-history-bambu-history-1`. Si dice `Address already in use`, otro proceso tiene el puerto (en `server-ubuntu` el 8765 es de `pc-agent`). Usá otro con `VIEWER_PORT` |
+| `docker compose up -d` dice *Started* pero la página no carga / da 404 | Mirá `docker logs bambu-history-bambu-history-1`. Si dice `Address already in use`, otro proceso tiene ese puerto: poné otro en `VIEWER_PORT`. Acordate de mirar `ss -tlnH` además de `docker ps`, porque un servicio nativo no aparece en Docker |
+| `KeyError` o falta de credenciales | Copiá `.env.example` a `.env` y completalo. Corriendo sin Docker, el `.env` tiene que estar en el directorio desde donde ejecutás |
 
 ---
 
