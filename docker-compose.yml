@@ -9,7 +9,8 @@ services:
       # porque comparten el puerto 8766.
       SERVE: ${SERVE:-0}
       REFRESH_INTERVAL: ${REFRESH_INTERVAL:-0}
-      # 8765 lo ocupa pc-agent (esp32-wol) en el host
+      # El puerto es de cada máquina: si el default está ocupado, ponés
+      # VIEWER_PORT en tu .env y listo. (Acá el 8765 lo usa pc-agent.)
       VIEWER_PORT: ${VIEWER_PORT:-8766}
     volumes:
       - ./output:/output
@@ -22,6 +23,7 @@ services:
       - ./output:/output:ro
     environment:
       VIEWER_TIMEOUT: ${VIEWER_TIMEOUT:-30m}
+      VIEWER_PORT: ${VIEWER_PORT:-8766}
     # VIEWER_TIMEOUT=0 → sin auto-apagado (queda hasta `docker compose down`)
     # cualquier otro valor → formato de `timeout` (ej. 30m, 2h, 90s)
     command:
@@ -29,10 +31,10 @@ services:
       - -c
       - |
         if [ "$$VIEWER_TIMEOUT" = "0" ]; then
-          exec python -m http.server 8766
+          exec python -m http.server "$$VIEWER_PORT"
         else
-          exec timeout "$$VIEWER_TIMEOUT" python -m http.server 8766
+          exec timeout "$$VIEWER_TIMEOUT" python -m http.server "$$VIEWER_PORT"
         fi
     ports:
-      - "8766:8766"
+      - "${VIEWER_PORT:-8766}:${VIEWER_PORT:-8766}"
     restart: "no"

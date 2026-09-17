@@ -68,7 +68,13 @@ docker compose up -d viewer
 
 Queda corriendo en segundo plano en el puerto **8766**. La URL es la misma que imprime el script al terminar.
 
-> **¿Por qué 8766 y no 8765?** En `server-ubuntu` el 8765 lo usa `pc-agent` (servicio systemd de `esp32-wol`, para apagar/reiniciar el server desde el ESP32). Como corre nativo, no aparece en `docker ps`: si bambu-history intenta usar 8765 el contenedor muere con `OSError: [Errno 98] Address already in use`, y lo que responde en ese puerto es un 404 `no encontrado` de pc-agent.
+> **El puerto es de cada máquina.** El default es 8766, pero si en la tuya está ocupado, poné `VIEWER_PORT` en el `.env` y listo — no hay que tocar ni el compose ni el código:
+>
+> ```env
+> VIEWER_PORT=9000
+> ```
+>
+> Cómo se nota que un puerto está ocupado: el contenedor arranca y muere enseguida con `OSError: [Errno 98] Address already in use`, mientras `docker compose up -d` dice *Started*. Ojo que un servicio nativo (systemd) **no aparece en `docker ps`**, así que conviene mirar también `ss -tlnH`. Acá el 8765 lo usa `pc-agent`, el servicio que apaga el server desde el ESP32; por eso el default quedó en 8766.
 
 **Auto-apagado**: por defecto el visor se apaga solo a los **30 min** (evita dejar el puerto abierto indefinidamente). Controlable con `VIEWER_TIMEOUT`:
 
@@ -117,6 +123,28 @@ Ventajas vs. modo A:
 
 ---
 
+## Correr sin Docker
+
+No hace falta Docker: el script corre derecho con Python 3.12+.
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env     # completá email y contraseña
+python bambu_history.py
+```
+
+Fuera de Docker el script **lee el `.env` del directorio actual** por su cuenta (con Docker eso lo hace `env_file`). Lo que ya esté en el entorno tiene prioridad, así que esto sigue funcionando:
+
+```bash
+LIMIT=5 PAGE_SIZE=24 python bambu_history.py
+```
+
+Las rutas se acomodan solas: dentro de Docker usa `/output` y `/data` (los volúmenes), y fuera `./output` y `./data`, al lado del script. Se detecta con `/.dockerenv`. Si necesitás otra cosa, `OUTPUT_DIR` y `DATA_DIR` mandan sobre todo lo demás.
+
+> Si faltan las credenciales, corta con un mensaje claro en vez de un `KeyError`.
+
+---
+
 ## Configuración (`.env`)
 
 ```env
@@ -126,6 +154,7 @@ BAMBU_PASSWORD=tupassword       # Contraseña
 BAMBU_DEVICE_ID=03919D573008914 # Serial de tu impresora (opcional)
                                 # Vacío = trae todas las impresoras de tu cuenta
 
+VIEWER_PORT=8766                # Puerto del visor ← propio de cada máquina
 LIMIT=100                       # Máximo de impresiones a traer
 PAGE_SIZE=auto                  # Cards por página: "auto" llena la pantalla, o un número fijo
 COVER_QUALITY=82                # Calidad WebP de las miniaturas (1-100)

@@ -9,15 +9,54 @@ from datetime import datetime
 import requests
 from PIL import Image
 
+# ── ENTORNO ───────────────────────────────────────────────────────────────────
+# Con Docker las variables llegan por `env_file`. Corriendo a mano no hay nada
+# que las cargue, así que se lee el .env del directorio actual. Lo que ya venga
+# en el entorno gana: `LIMIT=5 python bambu_history.py` sigue mandando.
+
+def load_env(ruta: str = ".env"):
+    if not os.path.exists(ruta):
+        return
+    with open(ruta, encoding="utf-8") as f:
+        for linea in f:
+            linea = linea.strip()
+            if not linea or linea.startswith("#") or "=" not in linea:
+                continue
+            clave, valor = linea.split("=", 1)
+            clave = clave.strip()
+            if clave not in os.environ:
+                os.environ[clave] = valor.strip().strip("'\"")
+
+
+load_env()
+
+# Consolas de Windows: sin esto, los ─ y las flechas de los mensajes revientan
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-EMAIL      = os.environ["BAMBU_EMAIL"]
-PASSWORD   = os.environ["BAMBU_PASSWORD"]
+EMAIL      = os.getenv("BAMBU_EMAIL")
+PASSWORD   = os.getenv("BAMBU_PASSWORD")
+
+if not EMAIL or not PASSWORD:
+    print("Error: faltan BAMBU_EMAIL y/o BAMBU_PASSWORD.")
+    print("Ponelos en el .env (copiá .env.example) o exportalos en el entorno.")
+    sys.exit(1)
+
 DEVICE_ID  = os.getenv("BAMBU_DEVICE_ID", "")
 LIMIT      = int(os.getenv("LIMIT", "100"))
 PAGE_SIZE  = os.getenv("PAGE_SIZE", "auto").strip().lower()  # "auto" = llenar la pantalla
 SAVE_JSON  = os.getenv("SAVE_JSON", "1") == "1"
-OUTPUT_DIR = "/output"
-DATA_DIR   = "/data"
+# Dentro de Docker los volúmenes se montan en /output y /data; fuera, al lado
+# del script. Se puede forzar cualquiera de los dos con OUTPUT_DIR / DATA_DIR.
+IS_DOCKER  = os.path.exists("/.dockerenv") or os.getenv("AM_I_IN_A_DOCKER_CONTAINER", "") != ""
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/output" if IS_DOCKER else "./output")
+DATA_DIR   = os.getenv("DATA_DIR",   "/data"   if IS_DOCKER else "./data")
 TOKEN_FILE = f"{DATA_DIR}/.bambu_token"
 LEGACY_TOKEN_FILE = f"{OUTPUT_DIR}/.bambu_token"
 JSON_FILE  = f"{OUTPUT_DIR}/historial.json"
@@ -93,6 +132,10 @@ def do_login() -> str:
         f"{BASE_URL}/v1/user-service/user/login",
         json={"account": EMAIL, "password": PASSWORD}, timeout=15,
     )
+    if r.status_code != 200:
+        # Recortado a propósito: el cuerpo de una respuesta de login puede traer
+        # datos que no conviene dejar en los logs.
+        print(f"  El servidor respondió {r.status_code}: {r.text[:200]}")
     r.raise_for_status()
     data = r.json()
     token = data.get("accessToken")
@@ -109,6 +152,8 @@ def do_login() -> str:
             f"{BASE_URL}/v1/user-service/user/login",
             json={"account": EMAIL, "code": code}, timeout=15,
         )
+        if r3.status_code != 200:
+            print(f"  El servidor respondió {r3.status_code}: {r3.text[:200]}")
         r3.raise_for_status()
         token = r3.json().get("accessToken")
 
