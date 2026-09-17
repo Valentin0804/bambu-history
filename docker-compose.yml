@@ -6,9 +6,11 @@ services:
     environment:
       # SERVE=1 → modo live (bambu-history actúa como servidor HTTP y
       # regenera on-demand). En este modo NO levantes también `viewer`,
-      # porque comparten el puerto 8765.
+      # porque comparten el puerto 8766.
       SERVE: ${SERVE:-0}
       REFRESH_INTERVAL: ${REFRESH_INTERVAL:-0}
+      # 8765 lo ocupa pc-agent (esp32-wol) en el host
+      VIEWER_PORT: ${VIEWER_PORT:-8766}
     volumes:
       - ./output:/output
       - ./data:/data
@@ -27,10 +29,10 @@ services:
       - -c
       - |
         if [ "$$VIEWER_TIMEOUT" = "0" ]; then
-          exec python -m http.server 8765
+          exec python -m http.server 8766
         else
-          exec timeout "$$VIEWER_TIMEOUT" python -m http.server 8765
+          exec timeout "$$VIEWER_TIMEOUT" python -m http.server 8766
         fi
     ports:
-      - "8765:8765"
+      - "8766:8766"
     restart: "no"

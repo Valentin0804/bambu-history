@@ -799,7 +799,7 @@ def serve(token: str):
     from http.server import HTTPServer, SimpleHTTPRequestHandler
     import threading
 
-    port = int(os.getenv("VIEWER_PORT", "8765"))
+    port = int(os.getenv("VIEWER_PORT", "8766"))
     interval = max(REFRESH_INTERVAL, 60)  # nunca por debajo de 60s para no martirizar la API
     last_render = 0.0
     lock = threading.Lock()
@@ -844,7 +844,7 @@ def serve(token: str):
 
 def main():
     token = get_token()
-    port = os.getenv("VIEWER_PORT", "8765")
+    port = os.getenv("VIEWER_PORT", "8766")
     url = f"http://{local_ip()}:{port}/historial.html"
 
     if os.getenv("SERVE", "0") == "1":

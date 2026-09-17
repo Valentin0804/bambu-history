@@ -52,7 +52,7 @@ docker compose run --rm bambu-history
 Cuando termine, el script imprime la URL del visor:
 
 ```
-Visor: http://192.168.0.235:8765/historial.html
+Visor: http://192.168.0.235:8766/historial.html
 ```
 
 Abrila desde cualquier dispositivo de tu red. Si preferís abrir el HTML directo, está en `output/historial.html`.
@@ -65,7 +65,9 @@ Para no abrir el HTML a mano cada vez, levantá el visor que sirve la carpeta `o
 docker compose up -d viewer
 ```
 
-Queda corriendo en segundo plano en el puerto **8765**. La URL es la misma que imprime el script al terminar.
+Queda corriendo en segundo plano en el puerto **8766**. La URL es la misma que imprime el script al terminar.
+
+> **¿Por qué 8766 y no 8765?** En `server-ubuntu` el 8765 lo usa `pc-agent` (servicio systemd de `esp32-wol`, para apagar/reiniciar el server desde el ESP32). Como corre nativo, no aparece en `docker ps`: si bambu-history intenta usar 8765 el contenedor muere con `OSError: [Errno 98] Address already in use`, y lo que responde en ese puerto es un 404 `no encontrado` de pc-agent.
 
 **Auto-apagado**: por defecto el visor se apaga solo a los **30 min** (evita dejar el puerto abierto indefinidamente). Controlable con `VIEWER_TIMEOUT`:
 
@@ -97,14 +99,16 @@ El script entra en loop: cada 300s repollea Bambu Cloud y regenera el HTML. La p
 SERVE=1 REFRESH_INTERVAL=300 docker compose up -d bambu-history
 ```
 
-Acá el propio `bambu-history` levanta el servidor HTTP en el puerto **8765** y reemplaza al `viewer`. Cada request a `historial.html` chequea cuán vieja está la data: si pasó más de `REFRESH_INTERVAL` segundos desde la última generación, repollea Bambu Cloud antes de servir.
+Acá el propio `bambu-history` levanta el servidor HTTP en el puerto **8766** y reemplaza al `viewer`. Cada request a `historial.html` chequea cuán vieja está la data: si pasó más de `REFRESH_INTERVAL` segundos desde la última generación, repollea Bambu Cloud antes de servir.
 
 Ventajas vs. modo A:
 - Si recargás (F5) la página, ves data fresca (no tenés que esperar al próximo tick del loop).
 - Si nadie visita la página, no se desperdician llamadas a la cloud.
 - Mismo puerto, misma URL, sin `viewer` aparte.
 
-> **No corras `viewer` y `bambu-history` con `SERVE=1` al mismo tiempo** — los dos quieren bindear el puerto 8765.
+> **No corras `viewer` y `bambu-history` con `SERVE=1` al mismo tiempo** — los dos quieren bindear el puerto 8766.
+
+> **Acceso remoto por Tailscale**: el contenedor usa `network_mode: host`, así que la misma URL funciona con la IP de Tailscale del server: `http://<tu-ip-tailscale>:8766/historial.html`.
 
 > El piso mínimo de `REFRESH_INTERVAL` en modo live es **60s** (para no martirizar la API de Bambu).
 
@@ -215,7 +219,7 @@ SERVE=1 REFRESH_INTERVAL=300 docker compose up -d bambu-history
 # Apagar todo
 docker compose down
 
-# Cambiar puerto (cambiar también el mapeo en docker-compose.yml si usás `viewer`)
+# Cambiar puerto (default 8766; cambiar también el comando y el mapeo de `viewer` en docker-compose.yml si lo usás)
 VIEWER_PORT=9000 docker compose run --rm bambu-history
 ```
 
@@ -272,3 +276,4 @@ cd /mnt/c/Users/TuUsuario/ruta/al/proyecto/bambu-history
 Los archivos de `output/` aparecen en Windows en la carpeta del proyecto normalmente.
 
 </details>
+| `docker compose up -d` dice *Started* pero la página no carga / da 404 | Mirá `docker logs bambu-history-bambu-history-1`. Si dice `Address already in use`, otro proceso tiene el puerto (en `server-ubuntu` el 8765 es de `pc-agent`). Usá otro con `VIEWER_PORT` |
