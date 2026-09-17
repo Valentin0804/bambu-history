@@ -17,7 +17,8 @@ Descarga todas tus impresiones desde la nube, las muestra con thumbnails, filame
   - **Estadísticas en tiempo real**: tiempo total, filamento total, promedio por impresión
   - **Breakdown** por tipo y color de filamento con barras proporcionales
 - Guarda el historial en JSON
-- **Cachea las miniaturas en disco**: las descarga a `output/covers/` en cada fetch, así no dependen de las URLs firmadas de Bambu (que caducan a los 30 min)
+- **Acumula el historial en una base**: Bambu Cloud solo expone los **últimos 90 días**, así que lo que sale de esa ventana se pierde. Todo lo que se vio alguna vez queda en `data/historial.db` (SQLite) y el visor se genera desde ahí, no desde lo que devolvió el último fetch
+- **Cachea las miniaturas en disco y las guarda en WebP**: las descarga a `output/covers/` en cada fetch, así no dependen de las URLs firmadas de Bambu (que caducan a los 30 min). WebP pesa ~la mitad que el PNG original sin diferencia visible
 - **Recuerda el login**: no pide código de verificación cada vez (token guardado ~3 meses)
 
 ---
@@ -126,6 +127,8 @@ BAMBU_DEVICE_ID=03919D573008914 # Serial de tu impresora (opcional)
                                 # Vacío = trae todas las impresoras de tu cuenta
 
 LIMIT=100                       # Máximo de impresiones a traer
+PAGE_SIZE=auto                  # Cards por página: "auto" llena la pantalla, o un número fijo
+COVER_QUALITY=82                # Calidad WebP de las miniaturas (1-100)
 SAVE_JSON=1                     # 1 = guardar historial.json, 0 = no
 OUTPUT_FILE=/output/historial.json
 ```
@@ -158,7 +161,9 @@ Ingresás el código y listo. **Las próximas veces no lo pide** — el token se
 
 Abrí `output/historial.html` en cualquier navegador.
 
-### Filtros
+La interfaz está armada alrededor del uso real: **mirar el historial, seleccionar impresiones y leer horas y gramos** para cargarlos en el sistema de ventas y las calculadoras de precios. Por eso todo lo operativo vive en la **barra lateral** y el cuerpo queda solo con el grid y el paginador.
+
+### Filtros (en el lateral)
 
 | Elemento | Acción |
 |---|---|
@@ -166,31 +171,73 @@ Abrí `output/historial.html` en cualquier navegador.
 | Dots de color | Muestra solo impresiones que usaron ese color |
 | Combinar filtros | Filamento + color al mismo tiempo |
 
+### Paginación
+
+El grid **llena la pantalla exactamente**, sin dejar hueco abajo. Mide cuántas columnas entran, cuántas filas caben en el alto disponible, y después le da al grid ese alto justo repartido entre las filas (`grid-template-rows: repeat(N, 1fr)`): las portadas se estiran o achican un poco y recortan con `object-fit`, en vez de dejar espacio muerto.
+
+- En un monitor grande entran más columnas **y** más filas (en 1920×1080 son 6 × 3 = 18 cards).
+- Al cambiar el tamaño de la ventana se recalcula solo, **conservando el lugar** donde estabas.
+- En el teléfono (≤820 px) no se fuerza el alto: la página scrollea normal y las cards mantienen su proporción 4:3.
+
+> **Ojo con el alto real**: lo que importa no es que el monitor sea de 1080 px, sino el alto del *viewport*. Entre pestañas, barra de direcciones y barra de tareas se van ~150 px, y el cálculo usa ese alto real.
+
+`PAGE_SIZE=auto` es el default. Poniéndole un número (`PAGE_SIZE=24`) se fija, se desactiva el llenado y las cards vuelven a su proporción natural.
+
+Abajo del grid queda el paginador, que solo aparece si hay más de una página.
+
+### El paginador no se mueve
+
+Pasar de página no debería obligarte a reapuntar el mouse, así que:
+
+- **Cantidad de slots fija**: siempre 7 en escritorio y 5 en pantallas angostas, rellenando con `…`. Si la cantidad variara (`1 2 3 … 20` vs `1 … 5 6 7 … 20`), el bloque cambiaría de ancho y las flechas se correrían.
+- **Todos los slots miden lo mismo** (`--pg-w`, calculado con los dígitos del total), así cambiar un `9` por un `10`, o un número por `…`, no mueve nada.
+- **Los botones no scrollean la página**: llaman a `goToPage(n, false)`. Con `true` la vista salta al inicio del grid, que en el teléfono corre el botón de abajo del dedo.
+- En pantallas angostas son 5 slots porque con 7 el paginador se parte en dos renglones y las flechas quedan en líneas distintas.
+
+`PAGE_SIZE=auto` es el default. Poniéndole un número (`PAGE_SIZE=24`) se fija y deja de adaptarse.
+
+| Detalle | Comportamiento |
+|---|---|
+| Qué pagina | Lo **filtrado**, no el historial entero: al filtrar por material o color se recalculan las páginas |
+| Al cambiar de filtro | Volvés a la página 1 |
+| `Sel. visibles` | Selecciona **todo lo filtrado**, no solo la página a la vista |
+| Selección entre páginas | Se mantiene: si seleccionás en la página 1 y volvés, siguen marcadas |
+| Modo live (`<meta refresh>`) | La página actual queda en la URL (`#p=3`), así el auto-refresh no te devuelve a la 1 |
+
+> Solo se montan en el DOM las cards de la página actual. Ojo: el HTML sigue trayendo el JSON completo del historial, así que esto aligera el render y el filtrado, no el peso de la descarga.
+
 ### Selección
 
-- **Click en card** → seleccionás (borde azul + ✓)
-- **"Sel. visibles"** → selecciona todas las filtradas
-- **"Limpiar"** → deselecciona todo
+- **Click en card** → seleccionás (borde verde + ✓)
+- **"Seleccionar visibles"** → selecciona **todo lo filtrado**, no solo la página a la vista
+- **"Limpiar selección"** → deselecciona todo
 
-### Estadísticas (tiempo real)
+La selección se mantiene al cambiar de página y se recorta sola si un filtro deja algo afuera.
+
+### Horas y gramos (arriba del lateral)
+
+Es la razón de ser del visor, así que va primero y siempre visible:
 
 | Campo | Descripción |
 |---|---|
-| Seleccionadas | Cantidad elegida |
-| Tiempo total | Suma de horas de impresión |
-| Promedio | Tiempo promedio por impresión |
-| Filamento total | Gramos totales usados |
-| Completadas | OK vs total seleccionado |
+| Horas | Suma de la selección, en **decimal** (`17,75`), no en `17 h 45` |
+| Gramos | Suma de la selección, en decimal (`538,6`) |
+| Por material | Desglose por tipo y color — es lo que cambia el precio |
+| N de M | Cuántas seleccionaste sobre cuántas hay filtradas |
 
-### Breakdown por filamento y color
+Cada número tiene su propio botón **Copiar**, y copia el valor **pelado** (`17,75`, `538,6`), sin unidad, listo para pegar en una celda.
 
-Al seleccionar impresiones aparece un panel:
-```
-Por tipo          Por color
-─────────────     ─────────────────────
-PLA  ████  1.2kg  🟫 PLA  ████  342g
-PETG ██    234g   ⬜ PLA  ██    180g
-```
+> **Coma decimal**: se copia tal cual se ve, con coma. Si tu planilla espera punto, cambiá los dos `.replace('.', ',')` de `fmtHours()` y `fmtG()` en `bambu_history.py`.
+
+> La página se sirve por HTTP plano, donde el navegador no habilita `navigator.clipboard` (solo funciona en contextos seguros). Por eso el copiado cae a un `textarea` temporal, que sí anda por LAN y Tailscale.
+
+### Estadísticas globales
+
+Las métricas de todo el historial y los gráficos por tipo y color viven en una **vista aparte**, detrás del botón *Estadísticas* del header. Son para mirar de vez en cuando, no para el uso diario.
+
+### En el teléfono
+
+El lateral pasa arriba del grid, así que lo primero que ves al entrar es **horas, gramos y los dos botones de copiar**; después los filtros y el grid en 2 columnas. Los botones son de 44 px para que se puedan tocar bien.
 
 ---
 
@@ -199,6 +246,9 @@ PETG ██    234g   ⬜ PLA  ██    180g
 ```bash
 # Traer más impresiones
 LIMIT=200 docker compose run --rm bambu-history
+
+# Cambiar el tamaño de página del visor
+PAGE_SIZE=50 docker compose run --rm bambu-history
 
 # Solo una impresora
 BAMBU_DEVICE_ID=03919D573008914 docker compose run --rm bambu-history
@@ -235,15 +285,40 @@ bambu-history/
 ├── requirements.txt
 ├── .env.example            # Plantilla de configuración
 ├── .env                    # Tu configuración ← NO subir a git
-├── data/                   # Token de sesión ← NO subir a git, NO se sirve por HTTP
-│   └── .bambu_token
+├── data/                   # ← NO subir a git, NO se sirve por HTTP
+│   ├── .bambu_token        # Token de sesión
+│   └── historial.db        # Acumulado histórico (SQLite) ← la fuente de verdad
 └── output/                 # Generado al ejecutar ← NO subir a git
     ├── historial.html      # Visor web
-    ├── historial.json      # Datos en JSON
-    └── covers/             # Miniaturas cacheadas (covers/<id>.png)
+    ├── historial.json      # Volcado de la base en JSON
+    └── covers/             # Miniaturas cacheadas en WebP (covers/<id>.webp)
 ```
 
-> **Por qué `data/` separado de `output/`**: el visor web sirve `output/` por HTTP sin auth. Si el token estuviera ahí dentro, cualquiera en la LAN podría descargarlo y suplantar tu cuenta de Bambu por ~3 meses. Por eso vive en `data/`, que no se sirve nunca.
+> **Por qué `data/` separado de `output/`**: el visor web sirve `output/` por HTTP sin auth. Si el token estuviera ahí dentro, cualquiera en la LAN podría descargarlo y suplantar tu cuenta de Bambu por ~3 meses. Por eso vive en `data/`, que no se sirve nunca. La base vive ahí por lo mismo, y porque es la única copia de los trabajos que ya salieron de la ventana de 90 días: `output/` se puede borrar entero y se regenera, `data/` no.
+
+---
+
+## La ventana de 90 días
+
+La API de Bambu Cloud responde con un campo `total` y no entrega nada más allá: hoy son **233 trabajos**, los de los últimos ~90 días. Subir `LIMIT` no trae más, porque el tope no es del cliente sino de la nube.
+
+Por eso el flujo es acumulativo:
+
+1. Se pide a la nube lo que haya (paginado de a 50, hasta `LIMIT`).
+2. Se hace *upsert* en `data/historial.db` por `id`: lo nuevo entra, lo conocido se actualiza, y lo que ya no está en la nube **se queda en la base**.
+3. El visor y el `historial.json` se generan con **todo** lo acumulado.
+
+La primera corrida con la base vacía importa el `output/historial.json` que existiera de antes, así no se arranca perdiendo lo ya bajado.
+
+> Las miniaturas siguen la misma lógica: un `.png` de una versión anterior se convierte a WebP en vez de volver a descargarse, porque para un trabajo fuera de la ventana ese archivo local es la única copia que queda.
+
+```bash
+# Cuántos trabajos hay acumulados
+sqlite3 data/historial.db "SELECT COUNT(*) FROM tasks;"
+
+# Los más viejos que la nube ya no tiene
+sqlite3 data/historial.db "SELECT start_time, title FROM tasks ORDER BY start_time LIMIT 5;"
+```
 
 ---
 
@@ -255,6 +330,7 @@ bambu-history/
 | Imágenes no cargan en el HTML | Las miniaturas se cachean en `output/covers/`. Si alguna falta, la descarga falló (red/S3 lento): volvé a ejecutar y reintenta solo las que falten |
 | `docker: command not found` | Verificá que Docker esté corriendo |
 | Token expirado (pide código de nuevo) | Normal cada ~3 meses, ingresás el código una vez |
+| `docker compose up -d` dice *Started* pero la página no carga / da 404 | Mirá `docker logs bambu-history-bambu-history-1`. Si dice `Address already in use`, otro proceso tiene el puerto (en `server-ubuntu` el 8765 es de `pc-agent`). Usá otro con `VIEWER_PORT` |
 
 ---
 
@@ -276,4 +352,3 @@ cd /mnt/c/Users/TuUsuario/ruta/al/proyecto/bambu-history
 Los archivos de `output/` aparecen en Windows en la carpeta del proyecto normalmente.
 
 </details>
-| `docker compose up -d` dice *Started* pero la página no carga / da 404 | Mirá `docker logs bambu-history-bambu-history-1`. Si dice `Address already in use`, otro proceso tiene el puerto (en `server-ubuntu` el 8765 es de `pc-agent`). Usá otro con `VIEWER_PORT` |
