@@ -1,4 +1,5 @@
 .env
+.env.bak*
 output/
 data/
 __pycache__/
